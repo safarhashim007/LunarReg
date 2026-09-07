@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lunarreg"
+version = "0.1.0"
+description = "Image-only lunar registration with controlled validation"
+requires-python = ">=3.12"
+dependencies = ["numpy", "opencv-contrib-python", "torch", "torchvision", "rasterio", "romav2"]
+
+[project.scripts]
+lunarreg = "lunarreg.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["lunarreg*"]
