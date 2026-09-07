@@ -56,7 +56,7 @@ SIFT → RoMa configuration ablations → V7 multi-hypothesis mode selection →
 
 ## Outputs and failure behavior
 
-Runs save configuration/provenance, transform, diagnostics, stage logs, match/control arrays, JSON/CSV metrics and optional V11 fields/control rejection reasons. Exit 0 means the geometric gate passed; 2 means it failed; 1 indicates a runtime/input failure with `failure.json`. A failed gate still preserves diagnostics and must not be treated as registration approval. Source images, model caches, virtual environments and generated outputs are ignored by Git. This repository is prepared for source publication; no GitHub repository has been created or pushed.
+Runs save configuration/provenance, transform, diagnostics, stage logs, match/control arrays, JSON/CSV metrics and optional V11 fields/control rejection reasons. Exit 0 means the geometric gate passed; 2 means it failed; 1 indicates a runtime/input failure with `failure.json`. A failed gate still preserves diagnostics and must not be treated as registration approval. Source images, model caches, virtual environments and generated outputs are ignored by Git. The source repository is published at https://github.com/safarhashim007/LunarReg.
 
 ## Repository contents and change record
 
