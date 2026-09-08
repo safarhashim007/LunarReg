@@ -8,6 +8,19 @@ V11 is experimental: pretrained RoMa fine-network descriptors at stride 2, bound
 
 ## Setup and usage
 
+### Hackathon demo
+
+For a reliable live presentation, run the frozen replay demo:
+
+```sh
+scripts/hackathon_demo.sh
+```
+
+It runs the regression suite, refuses output overwrites, replays the preserved
+V9 baseline, and prints the paths to the overlay, registered image, and metrics.
+Use [the hackathon walkthrough](docs/HACKATHON_DEMO.md) for the speaking order
+and the boundary between the presentation replay and fresh OHRC certification.
+
 Use the existing Python 3.12 `.venv`; no new dependencies were installed. `requirements-validated.txt` records the installed versions. On a new system, install the project dependencies and explicitly cache the pinned RoMa/DINO weights according to their upstream setup. The CLI does not initiate model downloads when caches are absent. Model/data redistribution and licensing must be checked separately before publishing assets.
 
 From the repository root:
@@ -26,6 +39,13 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 ```
 
 ## Architecture
+
+The communication layer is split into two FastAPI applications. Start both
+with `PYTHONPATH=src python3 -m server`: the Raspberry Pi Rover API listens on
+`0.0.0.0:8001`, while the Mission Console Frontend API listens on
+`0.0.0.0:8000`. Clients use the main PC's Tailscale address; no public port
+forwarding is configured. See [API architecture](docs/API_ARCHITECTURE.md) for
+the contracts, curl examples, and network diagram.
 
 - `io.py`, `config.py`, `runtime.py`: validation, immutable output namespaces, defaults, seeds, cached models and device handling.
 - `matching.py`, `cycle.py`: forward sampling, reverse queries and confidence/cycle calculations.

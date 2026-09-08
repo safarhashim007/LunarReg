@@ -14,11 +14,34 @@ from .visualization import save_registration
 
 def run(args):
     out=Path(args.output)
-    out.mkdir(parents=True,exist_ok=False)
-    logging.basicConfig(level=logging.INFO,handlers=[logging.FileHandler(out/'run.log'),logging.StreamHandler()],force=True)
+    blind = getattr(args, 'registration_mode', 'legacy') == 'blind'
+    resume_blind = blind and getattr(args, 'resume_blind', False)
+
+    if out.exists():
+        if not resume_blind:
+            raise FileExistsError(
+                f'Output directory already exists: {out}'
+            )
+        if not out.is_dir():
+            raise NotADirectoryError(out)
+        if (out/'transform_frozen.json').exists() or (out/'transform.npy').exists():
+            raise FileExistsError(
+                'Cannot resume: this run already contains a transform'
+            )
+    else:
+        out.mkdir(parents=True, exist_ok=False)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[
+            logging.FileHandler(out/'run.log'),
+            logging.StreamHandler()
+        ],
+        force=True
+    )
+
     seal = None
     try:
-        blind = getattr(args, 'registration_mode', 'legacy') == 'blind'
         if blind and (args.expected_scale is not None or args.expected_rotation is not None or args.frozen_baseline):
             raise ValueError('Blind mode cannot use priors or a frozen legacy baseline')
         if blind:
@@ -53,7 +76,7 @@ def run(args):
             logging.info('Running fresh bidirectional matching')
             try:
                 model=load_model(args.mode,args.device)
-                with open(out/'stages.log','w') as log,contextlib.redirect_stdout(log):
+                with open(out/'stages.log','a' if resume_blind else 'w') as log,contextlib.redirect_stdout(log):
                     if blind:
                         A,B,conf,cycle,sweep=match_blind_rotation_sweep(args.source,args.reference,source,reference.shape,model,step_degrees=args.blind_rotation_step,temporary_directory=out)
                     else:

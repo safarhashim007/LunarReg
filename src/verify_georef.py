@@ -3,9 +3,6 @@ import cv2
 import rasterio
 import numpy as np
 
-from rasterio.warp import reproject, Resampling
-
-
 PAIR = "data/test_pairs/pair_001"
 OUT = "outputs/pair_001"
 
@@ -38,60 +35,35 @@ def stretch(image, ignore_zero=False):
     return (result * 255).astype(np.uint8)
 
 
-# --------------------------------------------------
-# Open reference LRO image
-# --------------------------------------------------
+# Load both georeferenced crops
+with rasterio.open(ch_path) as ch:
+    ch_data = ch.read(1)
+    print("Chandrayaan size:", ch_data.shape)
+    print("Chandrayaan bounds:", ch.bounds)
 
 with rasterio.open(lro_path) as lro:
     lro_data = lro.read(1)
-
-    print("LRO")
-    print("Size:", lro.width, "x", lro.height)
-    print("CRS:", lro.crs)
-    print("Bounds:", lro.bounds)
-
-    # Destination array uses EXACT LRO grid
-    ch_on_lro = np.zeros(
-        (lro.height, lro.width),
-        dtype=np.float32
-    )
-
-    # --------------------------------------------------
-    # Reproject Chandrayaan directly onto LRO grid
-    # --------------------------------------------------
-
-    with rasterio.open(ch_path) as ch:
-
-        print()
-        print("Chandrayaan")
-        print("Size:", ch.width, "x", ch.height)
-        print("CRS:", ch.crs)
-        print("Bounds:", ch.bounds)
-
-        reproject(
-            source=rasterio.band(ch, 1),
-            destination=ch_on_lro,
-
-            src_transform=ch.transform,
-            src_crs=ch.crs,
-
-            dst_transform=lro.transform,
-            dst_crs=lro.crs,
-
-            resampling=Resampling.bilinear
-        )
+    print("LRO size:", lro_data.shape)
+    print("LRO bounds:", lro.bounds)
 
 
-# --------------------------------------------------
-# Display versions
-# --------------------------------------------------
-
-ch8 = stretch(ch_on_lro)
+# Display normalization
+ch8 = stretch(ch_data)
 lro8 = stretch(lro_data, ignore_zero=True)
+
+
+# Both crops cover the same geographic AOI.
+# Resample Chandrayaan from ~5 m/px to LRO ~20 m/px.
+ch_resampled = cv2.resize(
+    ch8,
+    (lro8.shape[1], lro8.shape[0]),
+    interpolation=cv2.INTER_AREA
+)
+
 
 cv2.imwrite(
     f"{OUT}/georef_chandrayaan.png",
-    ch8
+    ch_resampled
 )
 
 cv2.imwrite(
@@ -100,12 +72,28 @@ cv2.imwrite(
 )
 
 
-# --------------------------------------------------
-# 50/50 overlay
-# --------------------------------------------------
+# Side by side
+separator = np.full(
+    (lro8.shape[0], 10),
+    255,
+    dtype=np.uint8
+)
 
+side = np.hstack([
+    ch_resampled,
+    separator,
+    lro8
+])
+
+cv2.imwrite(
+    f"{OUT}/georef_side_by_side.png",
+    side
+)
+
+
+# Overlay
 overlay = cv2.addWeighted(
-    ch8,
+    ch_resampled,
     0.5,
     lro8,
     0.5,
@@ -117,32 +105,4 @@ cv2.imwrite(
     overlay
 )
 
-
-# --------------------------------------------------
-# Side by side
-# --------------------------------------------------
-
-separator = np.full(
-    (lro8.shape[0], 10),
-    255,
-    dtype=np.uint8
-)
-
-side_by_side = np.hstack([
-    ch8,
-    separator,
-    lro8
-])
-
-cv2.imwrite(
-    f"{OUT}/georef_side_by_side.png",
-    side_by_side
-)
-
-
-print()
-print("Saved:")
-print(f"{OUT}/georef_chandrayaan.png")
-print(f"{OUT}/georef_lro.png")
-print(f"{OUT}/georef_overlay.png")
-print(f"{OUT}/georef_side_by_side.png")
+print("\nSaved verification images.")

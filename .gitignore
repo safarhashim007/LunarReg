@@ -9,7 +9,10 @@ __pycache__/
 build/
 dist/
 .cache/
-models/
-data/
-outputs/
+/models/
+/data/
+/outputs/
 notebooks/.ipynb_checkpoints/
+print.prt
+*.before_resume
+/work/

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LunarReg Mission Console</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">LUNARREG / MISSION CONSOLE</p>
+        <h1>Image registration, made inspectable.</h1>
+        <p class="lede">Watch the image-only run, see what has been frozen, and understand exactly what is still waiting for evidence.</p>
+      </div>
+      <div class="status-pill" id="connection">Connecting…</div>
+    </header>
+
+    <section class="toolbar" aria-label="Run selection">
+      <label for="run-select">Run</label>
+      <select id="run-select"></select>
+      <button id="refresh" type="button">Refresh</button>
+    </section>
+
+    <section class="grid" aria-live="polite">
+      <article class="card wide"><p class="label">Current state</p><h2 id="state">—</h2><p id="state-note" class="muted">Select a run to inspect its evidence.</p></article>
+      <article class="card"><p class="label">Rotation sweep</p><h2 id="sweep">—</h2><p class="muted">Image-only candidates</p></article>
+      <article class="card"><p class="label">Transform</p><h2 id="frozen">—</h2><p class="muted">Frozen before evaluation</p></article>
+      <article class="card"><p class="label">Quality gate</p><h2 id="quality">—</h2><p class="muted">Solver evidence</p></article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Evidence timeline</h2><span id="updated" class="muted">—</span></div>
+      <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Readiness checks</h2><span id="verdict" class="badge neutral">Pending</span></div>
+      <div id="checks" class="checks"><p class="muted">No readiness report yet.</p></div>
+    </section>
+
+    <footer>Evaluation data is read only after the transform is frozen. A missing artifact stays visible as pending.</footer>
+  </main>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

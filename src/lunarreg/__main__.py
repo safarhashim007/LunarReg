@@ -42,6 +42,12 @@ def main():
                    help="legacy: V9/TMC priors (default); blind: full rotation, image-only ranking and gate, source-pixel cycles")
     p.add_argument("--blind-rotation-step", type=float, default=30.0,
                    help="Blind mode only: source rotation spacing in degrees across [0, 360) (default: 30)")
+
+    p.add_argument(
+        "--resume-blind",
+        action="store_true",
+        help="Resume a blind rotation sweep from saved rotation match files"
+    )
     p.add_argument("--expected-scale", type=float, help="Legacy mode only")
     p.add_argument(
         "--expected-rotation",

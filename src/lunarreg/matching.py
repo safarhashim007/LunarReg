@@ -103,6 +103,58 @@ def match_blind_rotation_sweep(source, reference, source_image, reference_shape,
     temp_root = Path(temporary_directory) if temporary_directory else None
     with tempfile.TemporaryDirectory(prefix='blind_rotation_sources_', dir=temp_root) as directory:
         for index, angle in enumerate(angles):
+            cache_path = (
+                temp_root / f'rotation_{index:03d}_matches.npz'
+                if temp_root is not None
+                else None
+            )
+
+            # Resume a previously completed image-only rotation.
+            if cache_path is not None and cache_path.exists():
+                with np.load(cache_path, allow_pickle=False) as cached:
+                    required = {'source', 'reference', 'confidence', 'cycle_error'}
+                    if not required.issubset(set(cached.files)):
+                        raise RuntimeError(
+                            f'Incomplete cached rotation file: {cache_path}'
+                        )
+
+                    A = cached['source'].astype(np.float32)
+                    B = cached['reference'].astype(np.float32)
+                    confidence = cached['confidence'].astype(np.float32)
+                    cycle = cached['cycle_error'].astype(np.float32)
+
+                if not (
+                    len(A) == len(B) == len(confidence) == len(cycle)
+                ):
+                    raise RuntimeError(
+                        f'Invalid cached rotation lengths: {cache_path}'
+                    )
+
+                pooled[0].append(A)
+                pooled[1].append(B)
+                pooled[2].append(confidence)
+                pooled[3].append(cycle)
+
+                attempts.append({
+                    'rotation_degrees': angle,
+                    'valid_matches': int(len(A))
+                })
+
+                from .io import json_write
+                json_write(
+                    temp_root / 'rotation_progress.json',
+                    dict(
+                        attempts=attempts,
+                        complete=len(attempts) == len(angles)
+                    )
+                )
+
+                print(
+                    f'Rotation {angle:g}: resumed {len(A)} valid matches',
+                    flush=True
+                )
+                continue
+
             if angle == 0.0:
                 candidate_path = source
                 inverse_rotation = None
