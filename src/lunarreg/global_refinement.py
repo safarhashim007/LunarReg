@@ -5,7 +5,10 @@ import cv2
 import numpy as np
 from .config import *
 from .geometry import *
-def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape, OUT, seed=42, expected_scale=None, rotation=0.0):
+def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape, OUT, seed=42, expected_scale=None, rotation=None, *, blind=False):
+    if blind and (expected_scale is not None or rotation is not None):
+        raise ValueError("Blind mode does not accept scale or rotation priors")
+    rotation = 0.0 if rotation is None else rotation
     H_A, W_A = source_shape
     H_B, W_B = reference_shape
     if expected_scale is not None and (not np.isfinite(expected_scale) or expected_scale <= 0):
@@ -13,10 +16,11 @@ def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape,
     if not np.isfinite(rotation): raise ValueError("Expected rotation must be finite")
     if not all(np.isfinite(x).all() for x in (ptsA,ptsB,combined_conf,cycle_error)):
         raise ValueError("Nonfinite correspondences")
-    expected_scale = expected_scale or (W_B / W_A + H_B / H_A) / 2
-    scale_prior_sigma = expected_scale * SCALE_PRIOR_SIGMA_FRACTION
-    MIN_SCALE = expected_scale * 0.6
-    MAX_SCALE = expected_scale * 1.6
+    if not blind:
+        expected_scale = expected_scale or (W_B / W_A + H_B / H_A) / 2
+        scale_prior_sigma = expected_scale * SCALE_PRIOR_SIGMA_FRACTION
+        MIN_SCALE = expected_scale * 0.6
+        MAX_SCALE = expected_scale * 1.6
     EXPECTED_ROTATION_DEG = rotation
     rng = np.random.default_rng(seed)
     cv2.setRNGSeed(seed)
@@ -31,12 +35,12 @@ def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape,
         if M is None:
             return None
         scale, rotation, tx, ty = transform_parameters(M)
-        if not np.isfinite(scale):
+        if not np.isfinite(M).all() or scale <= 0:
             return None
-        if scale < MIN_SCALE or scale > MAX_SCALE:
+        if not blind and (scale < MIN_SCALE or scale > MAX_SCALE):
             return None
         rotation_delta = wrap_angle_deg(rotation - EXPECTED_ROTATION_DEG)
-        if abs(rotation_delta) > MAX_ABS_ROTATION:
+        if not blind and abs(rotation_delta) > MAX_ABS_ROTATION:
             return None
         residual = residuals_for_transform(M, ptsA, ptsB)
         inlier_mask = residual <= HYPOTHESIS_INLIER_THRESHOLD
@@ -50,13 +54,16 @@ def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape,
         residual_score = math.exp(-median_residual / 3.0)
         inlier_quality = float(np.mean(base_weight[inlier_mask])) / weight_p95
         inlier_quality = float(np.clip(inlier_quality, 0.0, 1.0))
-        scale_z = (scale - expected_scale) / scale_prior_sigma
-        scale_prior = math.exp(-0.5 * scale_z * scale_z)
-        rot_z = rotation_delta / ROTATION_PRIOR_SIGMA_DEG
-        rotation_prior = math.exp(-0.5 * rot_z * rot_z)
         data_score = 0.4 * weighted_support + 0.25 * coverage + 0.2 * residual_score + 0.15 * inlier_quality
-        prior_score = math.sqrt(scale_prior * rotation_prior)
-        final_score = data_score * (0.3 + 0.7 * prior_score)
+        scale_prior = rotation_prior = prior_score = 1.0
+        final_score = data_score
+        if not blind:
+            scale_z = (scale - expected_scale) / scale_prior_sigma
+            scale_prior = math.exp(-0.5 * scale_z * scale_z)
+            rot_z = rotation_delta / ROTATION_PRIOR_SIGMA_DEG
+            rotation_prior = math.exp(-0.5 * rot_z * rot_z)
+            prior_score = math.sqrt(scale_prior * rotation_prior)
+            final_score = data_score * (0.3 + 0.7 * prior_score)
         return {'label': label, 'M': M.astype(np.float64), 'score': float(final_score), 'data_score': float(data_score), 'prior_score': float(prior_score), 'weighted_support': float(weighted_support), 'coverage': float(coverage), 'inliers': inlier_count, 'median_residual': float(median_residual), 'scale': float(scale), 'rotation': float(rotation), 'tx': float(tx), 'ty': float(ty), 'scale_prior': float(scale_prior), 'rotation_prior': float(rotation_prior)}
     order = np.argsort(cycle_score)[::-1]
     candidate_count = min(CANDIDATE_TOP_K, len(order))
@@ -81,7 +88,7 @@ def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape,
     pair_success = 0
     for n in range(PAIR_HYPOTHESES):
         i, j = rng.choice(len(candidate_A), size=2, replace=False)
-        M = similarity_from_two_points(candidate_A[i], candidate_A[j], candidate_B[i], candidate_B[j])
+        M = similarity_from_two_points(candidate_A[i], candidate_A[j], candidate_B[i], candidate_B[j], blind=blind)
         if M is None:
             continue
         result = score_hypothesis(M, 'pair')
@@ -273,14 +280,15 @@ def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape,
         relaxed_rmse = float(np.sqrt(np.mean(relaxed_residual ** 2)))
     else:
         relaxed_rmse = float('inf')
-    scale_error_percent = abs(final_scale - expected_scale) / expected_scale * 100.0
+    scale_error_percent = None if blind else abs(final_scale - expected_scale) / expected_scale * 100.0
     print()
     print('===== ROMA V9 FINAL RESULTS =====')
     print()
     print('Initial scale       :', round(initial_scale, 6))
     print('Final scale         :', round(final_scale, 6))
-    print('Expected scale      :', round(expected_scale, 6))
-    print('Scale error         :', round(scale_error_percent, 2), '%')
+    if not blind:
+        print('Expected scale      :', round(expected_scale, 6))
+        print('Scale error         :', round(scale_error_percent, 2), '%')
     print()
     print('Initial rotation    :', round(initial_rotation, 4), 'deg')
     print('Final rotation      :', round(final_rotation, 4), 'deg')
@@ -307,7 +315,7 @@ def solve(ptsA, ptsB, combined_conf, cycle_error, source_shape, reference_shape,
     print('Inlier ratio        :', round(len(relaxed_A) / len(ptsA), 4))
     print('RMSE                :', round(relaxed_rmse, 4), 'px')
     print('Coverage            :', round(relaxed_coverage * 100, 2), '%')
-    passed = len(strict_A) >= 30 and strict_rmse <= 5.0 and (relaxed_coverage >= 0.25) and (scale_error_percent <= 8.0) and (abs(wrap_angle_deg(final_rotation - EXPECTED_ROTATION_DEG)) <= 5.0)
+    passed = len(strict_A) >= 30 and strict_rmse <= 5.0 and (relaxed_coverage >= 0.25) and (blind or ((scale_error_percent <= 8.0) and (abs(wrap_angle_deg(final_rotation - EXPECTED_ROTATION_DEG)) <= 5.0)))
     print()
     if passed:
         print('REGISTRATION: PASS ✅')

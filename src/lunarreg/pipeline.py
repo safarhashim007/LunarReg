@@ -16,10 +16,19 @@ def run(args):
     out=Path(args.output)
     out.mkdir(parents=True,exist_ok=False)
     logging.basicConfig(level=logging.INFO,handlers=[logging.FileHandler(out/'run.log'),logging.StreamHandler()],force=True)
+    seal = None
     try:
+        blind = getattr(args, 'registration_mode', 'legacy') == 'blind'
+        if blind and (args.expected_scale is not None or args.expected_rotation is not None or args.frozen_baseline):
+            raise ValueError('Blind mode cannot use priors or a frozen legacy baseline')
+        if blind:
+            if any(Path(p).suffix.lower() != '.png' for p in (args.source,args.reference)):
+                raise ValueError('Blind fitting requires PNG inputs')
+            from .isolation import GeometrySeal
+            seal = GeometrySeal()
         source=read_image(args.source); reference=read_image(args.reference)
-        seed_all(args.seed)
-        provenance=dict(source_sha256=sha256(args.source),reference_sha256=sha256(args.reference),seed=args.seed,mode=args.mode,device_requested=args.device)
+        seed_all(args.seed, deterministic=not blind)
+        provenance=dict(source_sha256=sha256(args.source),reference_sha256=sha256(args.reference),seed=args.seed,mode=args.mode,device_requested=args.device,registration_mode="blind" if blind else "legacy",cycle_error_units="source_pixels" if blind else "reference_pixels_shape_scaled")
         json_write(out/'config.json',vars(args))
         if args.frozen_baseline:
             root=Path(args.frozen_baseline)
@@ -39,28 +48,43 @@ def run(args):
             provenance['mode']='frozen_v9_replay'
             np.savez_compressed(out/'controls.npz',source=A)
         else:
-            from .matching import match
+            from .matching import match,match_blind_rotation_sweep
             from .global_refinement import solve
             logging.info('Running fresh bidirectional matching')
             try:
                 model=load_model(args.mode,args.device)
                 with open(out/'stages.log','w') as log,contextlib.redirect_stdout(log):
-                    A,B,conf,cycle=match(args.source,args.reference,source.shape,reference.shape,model)
+                    if blind:
+                        A,B,conf,cycle,sweep=match_blind_rotation_sweep(args.source,args.reference,source,reference.shape,model,step_degrees=args.blind_rotation_step,temporary_directory=out)
+                    else:
+                        A,B,conf,cycle=match(args.source,args.reference,source.shape,reference.shape,model,blind=False)
             except RuntimeError:
                 if args.device=='cpu': raise
                 logging.exception('Accelerator failed; retrying on CPU')
                 model=load_model(args.mode,'cpu')
-                seed_all(args.seed)
+                seed_all(args.seed, deterministic=not blind)
                 with open(out/'stages.log','a') as log,contextlib.redirect_stdout(log):
-                    A,B,conf,cycle=match(args.source,args.reference,source.shape,reference.shape,model)
+                    if blind:
+                        A,B,conf,cycle,sweep=match_blind_rotation_sweep(args.source,args.reference,source,reference.shape,model,step_degrees=args.blind_rotation_step,temporary_directory=out)
+                    else:
+                        A,B,conf,cycle=match(args.source,args.reference,source.shape,reference.shape,model,blind=False)
             del model
+            if blind:
+                json_write(out/'rotation_sweep.json',dict(step_degrees=args.blind_rotation_step,attempts=sweep,matching_inputs='images only'))
             np.savez_compressed(out/'matches.npz',source=A,reference=B,confidence=conf,cycle_error=cycle)
             with open(out/'stages.log','a') as log,contextlib.redirect_stdout(log):
-                result=solve(A,B,conf,cycle,source.shape,reference.shape,str(out),args.seed,args.expected_scale,args.expected_rotation)
+                result=solve(A,B,conf,cycle,source.shape,reference.shape,str(out),args.seed,args.expected_scale,args.expected_rotation,blind=blind)
             for key in ('similarity_log','affine_log'): json_write(out/f'{key}.json',result[key])
             A=result['relaxed_A'];M=result['transform']
         if M.shape!=(2,3) or not np.isfinite(M).all() or np.linalg.det(M[:,:2])<=0: raise ValueError('Invalid transform')
         np.save(out/'transform.npy',M)
+        provenance['frozen_transform_sha256']=sha256(out/'transform.npy')
+        from datetime import datetime, timezone
+        json_write(out/'transform_frozen.json',dict(frozen_at_utc=datetime.now(timezone.utc).isoformat(), source_sha256=provenance['source_sha256'], reference_sha256=provenance['reference_sha256'], sha256=provenance['frozen_transform_sha256'],fitting_inputs='image correspondences only',registration_mode=provenance['registration_mode']))
+        if seal is not None:
+            json_write(out/'geometry_isolation.json',dict(passed=not seal.denied, denied=seal.denied,
+                       scope='Python file-open guard; PNG-only decoder inputs; active through transform freeze'))
+            seal.close()
         report=dict(provenance=provenance,quality_gate=bool(result['passed']),internal_fit_rmse=result['strict_rmse'],strict_coverage_pct=result['strict_coverage']*100,relaxed_coverage_pct=result['relaxed_coverage']*100,local_default=False)
         # Default always emits the validated global transform. Optional V11 is a separate candidate.
         save_registration(out,source,reference,M)
@@ -102,3 +126,5 @@ def run(args):
         logging.exception('Run failed')
         json_write(out/'failure.json',dict(reason=str(exc),type=type(exc).__name__))
         return 1
+    finally:
+        if seal is not None: seal.close()

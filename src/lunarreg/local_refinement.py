@@ -3,10 +3,10 @@ No geographic inputs. Rejects ambiguous, border, cross-scale and cycle failures.
 """
 import cv2
 import numpy as np
-import torch
 
 
 def descriptors(image, extractor):
+    import torch
     d=next(extractor.parameters()).device
     x=torch.from_numpy(np.repeat(image[None,None],3,axis=1).copy()).to(d).float()/255
     with torch.inference_mode():

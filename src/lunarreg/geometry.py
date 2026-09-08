@@ -38,7 +38,7 @@ def coverage_from_points(points, width, height, grid):
     coverage = len(occupied) / (grid * grid)
     return (coverage, occupied)
 
-def similarity_from_two_points(A1, A2, B1, B2):
+def similarity_from_two_points(A1, A2, B1, B2, *, blind=False):
     vec_A = A2 - A1
     vec_B = B2 - B1
     dist_A = float(np.linalg.norm(vec_A))
@@ -54,7 +54,7 @@ def similarity_from_two_points(A1, A2, B1, B2):
     angle_B = math.atan2(float(vec_B[1]), float(vec_B[0]))
     theta = angle_B - angle_A
     rotation = wrap_angle_deg(math.degrees(theta))
-    if abs(rotation) > MAX_ABS_ROTATION:
+    if not blind and abs(rotation) > MAX_ABS_ROTATION:
         return None
     cos_t = math.cos(theta)
     sin_t = math.sin(theta)
